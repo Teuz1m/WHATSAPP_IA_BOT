@@ -14,7 +14,6 @@ from vectorstore import get_vectorstore
 from prompts import contextualize_prompt, qa_prompt, agent_prompt
 from weather_tool import get_weather
 from agro_weather_tool import get_agro_weather
-from commodity_prices_tool import get_commodity_price
 
 
 def get_rag_chain():
@@ -45,7 +44,7 @@ def get_agent_chain():
     )
 
     # Lista de tools disponíveis
-    tools = [retriever_tool, get_weather, get_agro_weather, get_commodity_price]
+    tools = [retriever_tool, get_weather, get_agro_weather]
 
     # Criar agente com tools
     agent = create_tool_calling_agent(llm, tools, agent_prompt)

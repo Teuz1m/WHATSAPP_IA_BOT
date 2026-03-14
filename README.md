@@ -1,88 +1,137 @@
-# Chatbot IA para WhatsApp com EvolutionAPI
+# Chatbot IA para WhatsApp — Assistente de Agricultura Familiar
 
-Este projeto é um chatbot para WhatsApp utilizando:
+Chatbot para WhatsApp com foco em **agricultura familiar do Nordeste brasileiro**. O assistente responde dúvidas sobre cultivos, diagnostica doenças em plantas a partir de fotos, informa preços de commodities e fornece previsões climáticas voltadas para o campo.
 
-- [EvolutionAPI](https://doc.evolution-api.com/v2/pt/get-started/introduction) para integração com o WhatsApp
-- [FastAPI](https://fastapi.tiangolo.com/) para a API
-- [LangChain](https://www.langchain.com/) para gestão da conversa com IA
-- Modelos da [OpenAI](https://platform.openai.com/)
-- Docker e Docker Compose para facilitar o deploy
+**Stack:**
+
+- [EvolutionAPI](https://doc.evolution-api.com/v2/pt/get-started/introduction) — integração com WhatsApp
+- [FastAPI](https://fastapi.tiangolo.com/) — servidor de webhook
+- [LangChain](https://www.langchain.com/) — orquestração do agente de IA
+- [OpenAI GPT-4o](https://platform.openai.com/) — LLM com suporte a visão
+- [ChromaDB](https://www.trychroma.com/) — banco vetorial para RAG
+- [Redis](https://redis.io/) — buffer de mensagens e histórico de conversa
+- Docker Compose — orquestração de serviços
 
 ---
 
-## Como subir o projeto
+## Funcionalidades
 
-1. **Clone o repositório:**
+### Diagnóstico de Plantas por Foto
+O agricultor envia uma foto da lavoura pelo WhatsApp. O GPT-4o Vision analisa a imagem e identifica pragas, doenças fúngicas, deficiências nutricionais e estresse hídrico, descrevendo o problema e orientando com linguagem simples.
+
+### Previsão Climática Agrícola
+Consulta condições meteorológicas via [Open-Meteo](https://open-meteo.com/) (gratuito, sem chave). Retorna temperatura, chuva esperada, umidade e índice UV com interpretação voltada para o manejo no campo.
+
+### Base de Conhecimento (RAG)
+Documentos colocados na pasta `rag_files/` são vetorizados automaticamente e consultados pelo agente. Indicado para publicações da EMBRAPA, calendários agrícolas, guias de manejo e receituário agronômico voltados para o Nordeste.
+
+### Contexto de Conversa por Usuário
+Cada chat do WhatsApp mantém histórico independente armazenado no Redis. O assistente lembra do contexto da conversa sem misturar informações entre agricultores diferentes.
+
+### Buffer de Mensagens com Debounce
+Mensagens enviadas em sequência rápida são agrupadas antes de processar, evitando múltiplas respostas para uma mesma dúvida fragmentada em várias mensagens.
+
+---
+
+## Testando sem WhatsApp (TEST_MODE)
+
+> As funcionalidades do bot foram desenvolvidas e testadas via TEST_MODE. A integração completa com a EvolutionAPI ainda não foi validada em ambiente real.
+
+Para testar localmente sem precisar configurar a EvolutionAPI, ative o modo de teste no `.env`:
+
+```
+TEST_MODE=true
+DEBOUNCE_SECONDS=5
+```
+
+Suba os serviços:
+
+```bash
+docker-compose up --build
+```
+
+**Mensagem de texto:**
+```bash
+curl -X POST http://localhost:8000/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"key": {"remoteJid": "5511999999999@s.whatsapp.net"}, "message": {"conversation": "Qual o tempo em Fortaleza amanhã?"}}}'
+```
+
+**Imagem com legenda:**
+
+Use o script `test_image.sh` passando o caminho da imagem e a legenda:
+
+```bash
+./test_image.sh foto.jpg "essas folhas estão amarelando, o que pode ser?"
+```
+
+A resposta aparece nos logs após o debounce:
+
+```bash
+docker-compose logs -f bot
+```
+
+---
+
+## Como subir com WhatsApp (EvolutionAPI)
+
+> ⚠️ Esta integração ainda não foi testada em ambiente real. Os passos abaixo seguem a documentação oficial da EvolutionAPI.
+
+### 1. Clone o repositório
 
 ```bash
 git clone https://github.com/pycodebr/whatsapp_ai_bot.git
 cd whatsapp_ai_bot
 ```
 
-2. **Crie seu `.env` a partir do `.env.example`**
-
-Copie o arquivo de exemplo e edite com suas chaves:
+### 2. Crie o `.env` a partir do `.env.example`
 
 ```bash
 cp .env.example .env
 ```
 
-Edite o `.env` e adicione os seguintes valores:
+Variáveis obrigatórias:
 
-- `OPENAI_API_KEY` (sua chave da OpenAI)
-- `AUTHENTICATION_API_KEY` (chave de autenticação da EvolutionAPI)
-- `EVOLUTION_INSTANCE_NAME` (nome da instância no EvolutionAPI)
+| Variável | Descrição |
+|---|---|
+| `OPENAI_API_KEY` | Chave da OpenAI |
+| `OPENAI_MODEL_NAME` | Modelo a usar (recomendado: `gpt-4o`) |
+| `AUTHENTICATION_API_KEY` | Chave da EvolutionAPI |
+| `EVOLUTION_INSTANCE_NAME` | Nome da instância (deve bater com o painel) |
+| `CACHE_REDIS_URI` | URI do Redis (ex: `redis://redis:6379`) |
+| `AI_SYSTEM_PROMPT` | Prompt principal do assistente |
+| `AI_CONTEXTUALIZE_PROMPT` | Prompt para contextualizar perguntas |
 
-⚠️ O valor de `EVOLUTION_INSTANCE_NAME` deve ser exatamente o mesmo nome da instância que será criada no painel da EvolutionAPI em:
+Variáveis opcionais:
 
-[http://localhost:8080/manager](http://localhost:8080/manager)
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `WEATHER_API_KEY` | — | Chave OpenWeatherMap (ferramenta de clima genérico) |
+| `DEBOUNCE_SECONDS` | `10` | Tempo de espera antes de processar mensagens agrupadas |
+| `BUFFER_TTL` | `300` | Tempo de expiração do buffer no Redis (segundos) |
+| `OPENAI_MODEL_TEMPERATURE` | `0` | Temperatura do modelo |
 
-É por meio desse painel que você adiciona e conecta uma nova instância do WhatsApp e define seu nome.
+### 3. Adicione documentos para RAG
 
-3. **Adicione documentos para RAG (Busca por documentos):**
+Coloque PDFs ou TXTs na pasta `rag_files/`. Eles serão vetorizados automaticamente no startup e movidos para `rag_files/processed/`.
 
-Coloque os documentos que deseja usar para busca com RAG (Retrieval-Augmented Generation) na pasta:
+Conteúdo recomendado para agricultura familiar:
+- Sistemas de produção EMBRAPA para feijão-caupi, milho, mandioca
+- Manejo Integrado de Pragas (MIP) para culturas do Nordeste
+- Calendário agrícola por estado
 
-```
-rag_files/
-```
-
-Arquivos nessa pasta serão automaticamente vetorizados e utilizados nas respostas com IA.
-
-4. **Ajuste os prompts no `.env`:**
-
-Antes de subir os containers, personalize os seguintes prompts conforme o contexto da sua aplicação:
-
-- `AI_CONTEXTUALIZE_PROMPT` (prompt usado para gerar contexto com base nas mensagens do usuário)
-- `AI_SYSTEM_PROMPT` (prompt que define o comportamento e papel do assistente)
-
-Essas variáveis são fundamentais para que o chatbot responda de forma adequada ao seu caso de uso.
-
-⚠️ Esta etapa deve ser feita **antes** de subir os containers.
-
-5. **Suba os containers com Docker Compose:**
+### 4. Suba os containers
 
 ```bash
 docker-compose up --build
 ```
 
-6. **Acesse o painel da EvolutionAPI:**
+### 5. Configure o webhook na EvolutionAPI
 
-O painel da EvolutionAPI estará disponível em: [http://localhost:8080/manager](http://localhost:8080/manager)
+Acesse [http://localhost:8080/manager](http://localhost:8080/manager), conecte sua instância e configure:
 
-Utilize o painel para adicionar e gerenciar suas instâncias.
-
-7. **Conecte a instância do WhatsApp e configure o webhook:**
-
-Após conectar sua instância ao WhatsApp, acesse as configurações da instância no painel da EvolutionAPI e:
-
-- Adicione o seguinte webhook:
-
-```
-http://bot:8000/webhook
-```
-
-- Habilite o evento `MESSAGES_UPSERT`
+- **URL do webhook:** `http://bot:8000/webhook`
+- **Evento:** `MESSAGES_UPSERT`
 
 ---
 
